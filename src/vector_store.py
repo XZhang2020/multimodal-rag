@@ -28,12 +28,14 @@ class VectorStore:
         texts = [doc["content"] for doc in documents]
         embeddings = self.embedder.embed(texts)
         
-        for i, doc in enumerate(documents):
+        # 用循环下标作为Qdrant合法数字ID，原始id存入payload
+        for idx, doc in enumerate(documents):
             points.append(
                 PointStruct(
-                    id=doc["id"],
-                    vector=embeddings[i],
+                    id=idx,          # 合法数字ID
+                    vector=embeddings[idx],
                     payload={
+                        "origin_id": doc["id"],  # 保留原始字符串ID
                         "content": doc["content"],
                         "metadata": doc["metadata"]
                     }
@@ -50,21 +52,21 @@ class VectorStore:
     def search(self, query, top_k=20):
         """向量检索"""
         query_vector = self.embedder.embed(query)[0]
-        
-        results = self.client.search(
+
+        results = self.client.query_points(
             collection_name=self.collection_name,
-            query_vector=query_vector,
+            query=query_vector,
             limit=top_k
         )
-        
+
         return [
             {
-                "id": hit.id,
+                "id": hit.payload["origin_id"],
                 "content": hit.payload["content"],
                 "metadata": hit.payload["metadata"],
                 "score": hit.score
             }
-            for hit in results
+            for hit in results.points
         ]
     
     def get_parent_documents(self, parent_ids):
@@ -76,7 +78,7 @@ class VectorStore:
         
         return [
             {
-                "id": hit.id,
+                "id": hit.payload["origin_id"],
                 "content": hit.payload["content"],
                 "metadata": hit.payload["metadata"]
             }

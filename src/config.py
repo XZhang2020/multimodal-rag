@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     embedding_dim: int = 1024
     
     # 精排配置
-    rerank_model: str = "mixedbread-ai/mxbai-rerank-v2-500M"
+    rerank_model: str = "BAAI/bge-reranker-base"
     rerank_top_k: int = 5
     
     # 分块配置

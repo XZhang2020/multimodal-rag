@@ -10,10 +10,11 @@ rank_bm25>=0.2.2
 
 # 大模型
 openai>=1.30.0
-transformers>=4.45.0
+transformers>=4.45.0x
 torch>=2.3.0
 
 # 工具
 python-dotenv>=1.0.0
 tqdm>=4.66.0
 pillow>=10.3.0
+pymupdf
