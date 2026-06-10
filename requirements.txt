@@ -1,0 +1,19 @@
+# 文档解析
+docling>=2.0.0
+pymupdf>=1.24.0
+paddleocr>=2.8.0
+
+# 向量与检索
+sentence-transformers>=3.0.0
+qdrant-client>=1.10.0
+rank_bm25>=0.2.2
+
+# 大模型
+openai>=1.30.0
+transformers>=4.45.0
+torch>=2.3.0
+
+# 工具
+python-dotenv>=1.0.0
+tqdm>=4.66.0
+pillow>=10.3.0
