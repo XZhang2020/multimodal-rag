@@ -9,16 +9,18 @@ def ingest_all_documents():
     print(" 开始构建知识库")
     print("=" * 50)
 
-    # 1. 初始化组件
     parser = DocumentParser()
     chunker = SmartChunker()
     vector_store = VectorStore()
-    retriever = Retriever()
+    # Bug7：复用同一个 vector_store，避免重复实例化
+    retriever = Retriever(vector_store=vector_store)
 
-    # 2. 解析文档
+    # ingest 阶段需要清空历史脏数据，显式调用一次
+    vector_store.reset_collection()
+
+    # 解析文档
     documents = []
     data_dir = "data"
-
     for filename in os.listdir(data_dir):
         file_path = os.path.join(data_dir, filename)
         if os.path.isfile(file_path):
@@ -28,19 +30,22 @@ def ingest_all_documents():
 
     print(f"\n解析完成，共 {len(documents)} 个元素")
 
-    # 3. 分块
+    # 分层分块：父块 + 子块
     parent_docs, child_docs = chunker.split_documents(documents)
     print(f"分块完成：父块 {len(parent_docs)}，子块 {len(child_docs)}")
 
-    # 4. 存入向量数据库
-    print("正在生成向量并入库...")
-    vector_store.add_documents(child_docs)
+    # ========== 父子块全部入库 ==========
+    print("正在存入父块...")
+    vector_store.add_parent_documents(parent_docs)
 
-    # 5. 构建 BM25 索引并保存到本地
+    print("正在生成子块向量并入库...")
+    vector_store.add_child_documents(child_docs)
+
+    # 基于子块构建BM25索引（检索用子块）
     retriever.build_bm25_index(child_docs)
     retriever.save_bm25_index("bm25_index.pkl")
 
-    print("\n✅ 知识库构建完成！")
+    print("\n[OK] 知识库构建完成！")
     return True
 
 if __name__ == "__main__":
