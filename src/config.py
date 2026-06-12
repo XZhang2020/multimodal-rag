@@ -25,7 +25,11 @@ class Settings(BaseSettings):
     
     # 检索配置
     hybrid_retrieval_top_k: int = 20
-    
+
+    # 多轮对话配置
+    conversation_history_turns: int = 5  # 滑动窗口保留最近 N 轮（user+assistant 各算一条）
+    rewrite_history_turns: int = 2       # query 改写时只看最近 N 轮，避免远距离上下文干扰指代消解
+
     # Qdrant配置
     qdrant_host: str = "localhost"
     qdrant_port: int = 6333
