@@ -1,8 +1,22 @@
 import os
+from collections import Counter
 from src.document_parser import DocumentParser
 from src.chunker import SmartChunker
 from src.vector_store import VectorStore
 from src.retriever import Retriever
+
+
+def _make_progress():
+    """返回一个进度回调：图片/表格慢操作时原地刷新 '第几张/共几张'。"""
+    _stage_cn = {"figure": "图片", "table": "表格"}
+
+    def progress(stage, done, total):
+        label = _stage_cn.get(stage, stage)
+        end = "\n" if done == total else ""
+        print(f"\r    [{label}] 处理中 {done}/{total} ...", end=end, flush=True)
+
+    return progress
+
 
 def ingest_all_documents():
     print("=" * 50)
@@ -21,12 +35,19 @@ def ingest_all_documents():
     # 解析文档
     documents = []
     data_dir = "data"
-    for filename in os.listdir(data_dir):
+    files = [f for f in sorted(os.listdir(data_dir))
+             if os.path.isfile(os.path.join(data_dir, f))]
+    progress = _make_progress()
+
+    for i, filename in enumerate(files, start=1):
         file_path = os.path.join(data_dir, filename)
-        if os.path.isfile(file_path):
-            print(f"解析：{filename}")
-            docs = parser.parse(file_path)
-            documents.extend(docs)
+        print(f"\n[{i}/{len(files)}] 解析：{filename}")
+        docs = parser.parse(file_path, progress=progress)
+        # 本文件各模态分布，一眼看清抽到了什么
+        dist = Counter(d["metadata"].get("modality", "?") for d in docs)
+        dist_str = "，".join(f"{k} {v}" for k, v in dist.items()) or "空"
+        print(f"    -> {len(docs)} 个元素（{dist_str}）")
+        documents.extend(docs)
 
     print(f"\n解析完成，共 {len(documents)} 个元素")
 

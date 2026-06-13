@@ -33,12 +33,17 @@ _REWRITE_PREFIXES = (
 
 
 def _format_context(context_docs):
+    # 模态标签：让 LLM 和引用块知道这条来源是正文/表格/图/扫描件
+    _MOD_LABEL = {
+        "table": "表格", "figure": "图", "ocr_text": "扫描件", "text": "正文",
+    }
     blocks = []
     for i, doc in enumerate(context_docs, start=1):
         meta = doc.get("metadata", {})
         source = meta.get("source", "未知文件")
         page = meta.get("page", "?")
-        blocks.append(f"【来源{i} · {source} p.{page}】\n{doc['content']}")
+        mod = _MOD_LABEL.get(meta.get("modality", "text"), "正文")
+        blocks.append(f"【来源{i} · {source} p.{page} · {mod}】\n{doc['content']}")
     return "\n\n".join(blocks)
 
 

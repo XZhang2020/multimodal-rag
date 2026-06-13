@@ -1,53 +1,20 @@
-import os
-import fitz  # PyMuPDF
-from docling.document_converter import DocumentConverter
+"""统一文档解析入口（多模态）。
+
+历史上这里只做 PDF 纯文本抽取（扫描件丢占位串、图表全丢）。现在转调
+src.parsing 分级管线：docling 版面/表格 + PaddleOCR 中文 + VLM 图生文。
+返回契约不变：list[{"content", "metadata"}]，下游零改动。
+"""
+from src.parsing import parse_to_documents
+
 
 class DocumentParser:
     def __init__(self):
-        # 极简初始化，无任何报错
-        self.converter = DocumentConverter()
+        # 解析管线内部按需懒加载 docling/PaddleOCR/VLM，这里无需预热
+        pass
 
-    def parse(self, file_path: str):
-        """统一解析入口"""
-        ext = os.path.splitext(file_path)[1].lower()
-        if ext == ".pdf":
-            return self._parse_pdf(file_path)
-        else:
-            # 其他格式交给 docling
-            conv = self.converter.convert(file_path)
-            return self._to_docs(conv.document)
+    def parse(self, file_path: str, progress=None):
+        """统一解析入口：返回 [{'content', 'metadata'}]。
 
-    def _parse_pdf(self, path):
-        """只做文本提取，不做复杂OCR！"""
-        docs = []
-        doc = fitz.open(path)
-
-        for page_num, page in enumerate(doc):
-            text = page.get_text().strip()
-            if not text:
-                text = "[无法提取文本：可能是扫描件]"
-
-            docs.append({
-                "content": text,
-                "metadata": {
-                    "source": os.path.basename(path),
-                    "page": page_num + 1,
-                    "type": "text"
-                }
-            })
-        return docs
-
-    def _to_docs(self, docling_doc):
-        """轻量转格式"""
-        docs = []
-        for el in docling_doc.iterate_elements():
-            if el.text.strip():
-                docs.append({
-                    "content": el.text,
-                    "metadata": {
-                        "source": docling_doc.path.name,
-                        "page": el.page_no if hasattr(el, "page_no") else 0,
-                        "type": "text"
-                    }
-                })
-        return docs
+        progress: 可选回调 progress(stage, done, total)，上报图片/表格处理进度。
+        """
+        return parse_to_documents(file_path, progress=progress)

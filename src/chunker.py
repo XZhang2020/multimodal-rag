@@ -21,11 +21,17 @@ class SmartChunker:
         """
         实现父子分块策略
         返回：(parent_docs, child_docs)
+
+        多模态适配：metadata.atomic=True 的元素（表格/图片）整体成块，不递归切分，
+        否则 markdown 表格会被切碎、图片描述会断裂。
         """
         parent_docs = []
         child_docs = []
-        
+
         for doc in documents:
+            if doc.get("metadata", {}).get("atomic"):
+                self._add_atomic(doc, parent_docs, child_docs)
+                continue
             # 先生成父块
             parent_chunks = self.parent_splitter.split_text(doc["content"])
             
@@ -53,5 +59,26 @@ class SmartChunker:
                         }
                     }
                     child_docs.append(child_doc)
-        
+
         return parent_docs, child_docs
+
+    def _add_atomic(self, doc, parent_docs, child_docs):
+        """表格/图片：父块存完整内容（喂 LLM），子块只放检索文本（向量召回）。
+
+        表格父块含 markdown 原表；子块取摘要段（[表格原文] 之前），避免裸表入向量库。
+        """
+        meta = doc["metadata"]
+        parent_id = f"{meta['source']}_{meta['page']}_{meta.get('element_id', 'atomic')}"
+
+        parent_docs.append({
+            "id": parent_id,
+            "content": doc["content"],
+            "metadata": {**meta, "parent_id": parent_id},
+        })
+
+        retrieval_text = doc["content"].split("\n\n[表格原文]\n", 1)[0].strip()
+        child_docs.append({
+            "id": f"{parent_id}_0",
+            "content": retrieval_text or doc["content"],
+            "metadata": {**meta, "parent_id": parent_id, "child_idx": 0},
+        })

@@ -1,7 +1,8 @@
 # 文档解析
 docling>=2.0.0
 pymupdf>=1.24.0
-paddleocr>=2.8.0
+paddleocr>=3.0.0
+paddlepaddle>=3.0.0   # paddleocr 3.x 的底层依赖，缺它 import 成功但推理崩
 
 # 向量与检索
 sentence-transformers>=3.0.0
