@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     
     # 检索配置
     hybrid_retrieval_top_k: int = 20
+    # 上下文预算：喂给 LLM 的父块总字数上限（中文约 1 字≈1 token）。
+    # 免费 API 限制 prompt<4096 token，留出 system+history+query 余量，默认压到 2800。
+    max_context_chars: int = 2800
 
     # 多轮对话配置
     conversation_history_turns: int = 5  # 滑动窗口保留最近 N 轮（user+assistant 各算一条）
