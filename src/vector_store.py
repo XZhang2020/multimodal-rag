@@ -8,6 +8,7 @@ from qdrant_client.http.models import (
     FieldCondition,
     MatchValue,
     MatchAny,
+    FilterSelector,
 )
 from src.config import settings
 from src.embedder import Embedder
@@ -95,6 +96,27 @@ class VectorStore:
             collection_name=self.collection_name,
             points=points,
             wait=True
+        )
+
+    # 按来源文件名删除该文件的全部点（父块+子块），用于增量 ingest
+    def delete_by_source(self, source):
+        """删掉 metadata.source == source 的所有点。
+
+        父块和子块的 payload 都带 metadata.source，一次 Filter 即可清干净，
+        不区分 doc_type。"""
+        self.client.delete(
+            collection_name=self.collection_name,
+            points_selector=FilterSelector(
+                filter=Filter(
+                    must=[
+                        FieldCondition(
+                            key="metadata.source",
+                            match=MatchValue(value=source),
+                        )
+                    ]
+                )
+            ),
+            wait=True,
         )
 
     # 向量检索（仅查子块，服务端过滤 doc_type）

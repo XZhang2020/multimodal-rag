@@ -1,9 +1,14 @@
 import os
+import sys
 from collections import Counter
 from src.document_parser import DocumentParser
 from src.chunker import SmartChunker
 from src.vector_store import VectorStore
 from src.retriever import Retriever
+from src import manifest
+
+DATA_DIR = "data"
+BM25_PATH = "bm25_index.pkl"
 
 
 def _make_progress():
@@ -18,56 +23,84 @@ def _make_progress():
     return progress
 
 
-def ingest_all_documents():
+def _parse_files(parser, filenames, progress):
+    """解析给定文件列表，返回元素 list。"""
+    documents = []
+    for i, filename in enumerate(filenames, start=1):
+        file_path = os.path.join(DATA_DIR, filename)
+        print(f"\n[{i}/{len(filenames)}] 解析：{filename}")
+        docs = parser.parse(file_path, progress=progress)
+        dist = Counter(d["metadata"].get("modality", "?") for d in docs)
+        dist_str = "，".join(f"{k} {v}" for k, v in dist.items()) or "空"
+        print(f"    -> {len(docs)} 个元素（{dist_str}）")
+        documents.extend(docs)
+    return documents
+
+
+def ingest_all_documents(full: bool = False):
     print("=" * 50)
-    print(" 开始构建知识库")
+    print(" 全量重建知识库" if full else " 增量更新知识库")
     print("=" * 50)
 
     parser = DocumentParser()
     chunker = SmartChunker()
     vector_store = VectorStore()
-    # Bug7：复用同一个 vector_store，避免重复实例化
     retriever = Retriever(vector_store=vector_store)
-
-    # ingest 阶段需要清空历史脏数据，显式调用一次
-    vector_store.reset_collection()
-
-    # 解析文档
-    documents = []
-    data_dir = "data"
-    files = [f for f in sorted(os.listdir(data_dir))
-             if os.path.isfile(os.path.join(data_dir, f))]
     progress = _make_progress()
 
-    for i, filename in enumerate(files, start=1):
-        file_path = os.path.join(data_dir, filename)
-        print(f"\n[{i}/{len(files)}] 解析：{filename}")
-        docs = parser.parse(file_path, progress=progress)
-        # 本文件各模态分布，一眼看清抽到了什么
-        dist = Counter(d["metadata"].get("modality", "?") for d in docs)
-        dist_str = "，".join(f"{k} {v}" for k, v in dist.items()) or "空"
-        print(f"    -> {len(docs)} 个元素（{dist_str}）")
-        documents.extend(docs)
+    # 全量模式：清库 + 清 manifest，行为等价旧版
+    old_manifest = {} if full else manifest.load_manifest()
+    if full:
+        vector_store.reset_collection()
 
-    print(f"\n解析完成，共 {len(documents)} 个元素")
+    diff, new_manifest = manifest.diff_data_dir(DATA_DIR, old_manifest)
+    print(f"新增 {len(diff.added)} | 修改 {len(diff.modified)} | "
+          f"删除 {len(diff.deleted)} | 未变 {len(diff.unchanged)}")
 
-    # 分层分块：父块 + 子块
+    if not full and not diff.to_parse and not diff.deleted:
+        print("\n[OK] 没有变化，知识库无需更新。")
+        return True
+
+    # 1. 删除即将重解析(新增+修改)和已删文件的旧点（全量模式已清库，跳过）。
+    #    新增文件也删一次：在干净库上是空操作，但能保证"无 manifest 的老库"上
+    #    重跑不产生重复点 —— 整个 ingest 因此幂等。
+    sources_to_clear = sorted(set(diff.to_parse) | set(diff.deleted))
+    if not full:
+        for src in sources_to_clear:
+            print(f"清理旧数据：{src}")
+            vector_store.delete_by_source(src)
+
+    # 2. 只解析"新增 + 修改"的文件（未变文件零成本跳过）
+    documents = _parse_files(parser, diff.to_parse, progress)
+    print(f"\n本次解析完成，共 {len(documents)} 个元素")
+
+    # 3. 分块 + 入库（只入本次解析的文件）
     parent_docs, child_docs = chunker.split_documents(documents)
     print(f"分块完成：父块 {len(parent_docs)}，子块 {len(child_docs)}")
+    if parent_docs:
+        print("正在存入父块...")
+        vector_store.add_parent_documents(parent_docs)
+    if child_docs:
+        print("正在生成子块向量并入库...")
+        vector_store.add_child_documents(child_docs)
 
-    # ========== 父子块全部入库 ==========
-    print("正在存入父块...")
-    vector_store.add_parent_documents(parent_docs)
+    # 4. BM25 重建：留存子块（剔除将重解析/已删来源）+ 本次新子块
+    if full:
+        all_children = child_docs
+    else:
+        kept = retriever.drop_sources(sources_to_clear)
+        all_children = kept + child_docs
+    retriever.build_bm25_index(all_children)
+    retriever.save_bm25_index(BM25_PATH)
+    print(f"BM25 索引重建：共 {len(all_children)} 个子块")
 
-    print("正在生成子块向量并入库...")
-    vector_store.add_child_documents(child_docs)
+    # 5. 写回 manifest
+    manifest.save_manifest(new_manifest)
 
-    # 基于子块构建BM25索引（检索用子块）
-    retriever.build_bm25_index(child_docs)
-    retriever.save_bm25_index("bm25_index.pkl")
-
-    print("\n[OK] 知识库构建完成！")
+    print("\n[OK] 知识库更新完成！")
     return True
 
+
 if __name__ == "__main__":
-    ingest_all_documents()
+    full = "--full" in sys.argv
+    ingest_all_documents(full=full)

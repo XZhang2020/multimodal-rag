@@ -16,11 +16,8 @@ class Retriever:
     def __init__(self, vector_store: VectorStore = None):
         # Bug7：允许外部注入，避免 ingest 内重复实例化
         self.vector_store = vector_store if vector_store is not None else VectorStore()
-        self.reranker = CrossEncoder(
-            settings.rerank_model,
-            trust_remote_code=True,
-            device="cpu"
-        )
+        # reranker 懒加载：ingest 阶段只用 BM25 不用精排，避免白占 ~1GB 内存（降 OOM 风险）
+        self._reranker = None
         self.bm25_index = None
         self.all_child_docs = None
 
@@ -32,11 +29,33 @@ class Retriever:
                 tokenized_docs = [_tokenize(doc["content"]) for doc in self.all_child_docs]
                 self.bm25_index = BM25Okapi(tokenized_docs)
 
+    @property
+    def reranker(self):
+        """首次访问（问答精排时）才加载 CrossEncoder。"""
+        if self._reranker is None:
+            self._reranker = CrossEncoder(
+                settings.rerank_model,
+                trust_remote_code=True,
+                device="cpu",
+            )
+        return self._reranker
+
     def build_bm25_index(self, child_docs):
         """基于子块构建BM25"""
         self.all_child_docs = child_docs
         tokenized_docs = [_tokenize(doc["content"]) for doc in child_docs]
         self.bm25_index = BM25Okapi(tokenized_docs)
+
+    def drop_sources(self, sources):
+        """从已加载的子块列表中剔除指定来源文件的子块（增量 ingest 用）。
+
+        返回剔除后的子块列表；调用方再 append 新解析的子块并 build_bm25_index 重建。
+        BM25Okapi 本身不支持增量，但重建很快，瓶颈从来不在这。
+        """
+        drop = set(sources)
+        kept = [d for d in (self.all_child_docs or [])
+                if d["metadata"].get("source") not in drop]
+        return kept
 
     def save_bm25_index(self, path="bm25_index.pkl"):
         with open(path, "wb") as f:

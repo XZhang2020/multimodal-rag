@@ -19,7 +19,9 @@ import numpy as np
 warnings.filterwarnings("ignore")
 
 from src.config import settings
+from .cache import ParseCache
 
+_CACHE = ParseCache(enabled=settings.enable_parse_cache)
 _OCR = None
 _OCR_FAILED = False  # 初始化失败后不再反复重试
 
@@ -77,8 +79,16 @@ def _reading_order(texts: list[str], boxes) -> str:
 def ocr_image(image) -> str:
     """对一张图（np.ndarray / bytes / PIL.Image）做 OCR，返回阅读序文本。
 
+    输入为 bytes 时按内容哈希缓存：重复 ingest 命中缓存直接返回，
+    既省时间又避免重复加载/跑 paddle（重解析时的内存大户，降 OOM 风险）。
     引擎不可用或识别为空时返回 ""，由调用方决定占位策略——绝不抛异常打断主流程。
     """
+    cacheable = isinstance(image, (bytes, bytearray))
+    if cacheable:
+        cached = _CACHE.get(bytes(image), namespace="ocr")
+        if cached is not None:
+            return cached
+
     eng = _engine()
     if eng is None:
         return ""
@@ -99,7 +109,11 @@ def ocr_image(image) -> str:
     boxes = r0.get("rec_boxes")
     if boxes is not None and not isinstance(boxes, list):
         boxes = list(boxes)
-    return _reading_order(list(texts), boxes).strip()
+    text = _reading_order(list(texts), boxes).strip()
+
+    if cacheable:
+        _CACHE.set(bytes(image), namespace="ocr", value=text)
+    return text
 
 
 def is_available() -> bool:

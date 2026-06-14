@@ -17,6 +17,7 @@
 - **混合检索 + 精排**：BM25（jieba 分词）抓精确词 + 向量（bge-m3）抓语义，CrossEncoder 重排。
 - **多轮对话**：query 改写做指代消解 + 滑动窗口 history。
 - **带证据的回答**：每条事实附「原文摘录」引用块，标注来源模态（正文/表格/图/扫描件）。
+- **增量索引**：按 mtime+size 只解析新增/修改的文件，删除的清点、未变的跳过；`--full` 可全量重建。
 
 ## 快速开始
 
@@ -28,7 +29,8 @@ pip install -r requirements.txt
 # 前置：本地起 Qdrant(:6333) 和 ollama(:11434, 已 pull qwen3-vl:4b)
 # .env 配 OPENAI_API_KEY / OPENAI_BASE_URL(文本 LLM)，VLM 端点见 src/config.py
 
-python ingest.py                 # 解析 data/ → 切块 → 灌库 + BM25 索引
+python ingest.py                 # 增量构建：只解析新增/修改的文件，未变跳过
+python ingest.py --full          # 全量重建：清库 + 重新解析所有文件
 python scripts/parse_smoke.py    # 冒烟：打印各模态元素分布
 python main.py                   # 交互式问答(需真实终端)
 ```
